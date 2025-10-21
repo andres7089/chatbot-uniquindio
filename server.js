@@ -3,10 +3,10 @@
 // Con caché de resultados (12 horas)
 // ==========================================
 
-const express = require('express');
-const axios = require('axios');
-const cheerio = require('cheerio');
-const NodeCache = require('node-cache');
+const express = require("express");
+const axios = require("axios");
+const cheerio = require("cheerio");
+const NodeCache = require("node-cache");
 
 const app = express();
 app.use(express.json());
@@ -27,14 +27,15 @@ async function obtenerFechasUniquindio() {
 
   console.log("🌐 Obteniendo datos desde la web...");
   try {
-    const url = 'https://www.uniquindio.edu.co/actividades-por-subcategoria/4/consulta/';
+    const url = "https://www.uniquindio.edu.co/actividades-por-subcategoria/4/consulta/";
     const { data } = await axios.get(url, { timeout: 10000 });
     const $ = cheerio.load(data);
     const actividades = [];
 
-    $('.actividad').each((i, el) => {
-      const titulo = $(el).find('.titulo').text().trim();
-      const fecha = $(el).find('.fecha').text().trim();
+    // Extraer actividades
+    $(".actividad").each((i, el) => {
+      const titulo = $(el).find(".titulo").text().trim();
+      const fecha = $(el).find(".fecha").text().trim();
       if (titulo && fecha) {
         actividades.push(`• ${titulo}: ${fecha}`);
       }
@@ -42,9 +43,10 @@ async function obtenerFechasUniquindio() {
 
     let respuesta;
     if (actividades.length === 0) {
-      respuesta = '⚠️ No se encontraron fechas en el sitio de la Universidad del Quindío.';
+      respuesta =
+        "⚠️ No se encontraron fechas en el sitio de la Universidad del Quindío.";
     } else {
-      respuesta = '📅 Fechas académicas actuales:\n' + actividades.join('\n');
+      respuesta = "📅 Fechas académicas actuales:\n" + actividades.join("\n");
       cache.set(cacheKey, respuesta); // Guardar en caché
     }
 
@@ -54,28 +56,47 @@ async function obtenerFechasUniquindio() {
     // Si hay datos cacheados previos, devolverlos
     const previo = cache.get(cacheKey);
     if (previo) {
-      return "⚠️ No se pudo actualizar, mostrando la información anterior:\n" + previo;
+      return (
+        "⚠️ No se pudo actualizar, mostrando la información anterior:\n" + previo
+      );
     }
     return "Lo siento, no pude acceder a las fechas académicas de la Universidad del Quindío.";
   }
 }
 
 // 🧩 Endpoint principal del webhook
-app.post('/webhook', async (req, res) => {
-  const intent = req.body.queryResult.intent.displayName;
+app.post("/webhook", async (req, res) => {
+  const intent = req.body?.queryResult?.intent?.displayName || "Desconocido";
+  console.log("🧠 Intent recibido desde Dialogflow:", intent);
 
-  if (intent === "Fechas_importantes" || intent === "Fechas importantes") {
- {
-    const respuesta = await obtenerFechasUniquindio();
-    res.json({ fulfillmentText: respuesta });
-  } else {
-    res.json({ fulfillmentText: "No encontré información sobre esa intención." });
+  try {
+    // Detectar si el intent es el correcto (sin importar mayúsculas ni guiones)
+    if (intent.toLowerCase().includes("fecha")) {
+      const respuesta = await obtenerFechasUniquindio();
+      console.log("✅ Enviando respuesta al intent:", respuesta);
+      res.json({ fulfillmentText: respuesta });
+    } else {
+      console.log("❌ Intent no reconocido:", intent);
+      res.json({
+        fulfillmentText:
+          "No encontré información sobre esa intención (intent no reconocido).",
+      });
+    }
+  } catch (error) {
+    console.error("🔥 Error en el webhook:", error);
+    res.json({
+      fulfillmentText: "Ocurrió un error interno en el servidor del webhook.",
+    });
   }
+});
+
+// ✅ Endpoint GET simple (para probar en navegador)
+app.get("/", (req, res) => {
+  res.send("✅ Webhook del Chatbot Universidad del Quindío está activo.");
 });
 
 // 🔥 Puerto dinámico para Render
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🚀 Webhook activo en puerto ${PORT}`));
-
-
-
+app.listen(PORT, () =>
+  console.log(`🚀 Webhook activo en puerto ${PORT}`)
+);
