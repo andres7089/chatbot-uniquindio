@@ -64,7 +64,7 @@ async function obtenerFechasUniquindio() {
 app.post('/webhook', async (req, res) => {
   const intent = req.body.queryResult.intent.displayName;
 
-  if (intent === "Fechas importantes") {
+  if (intent === "Fechas_importantes") {
     const respuesta = await obtenerFechasUniquindio();
     res.json({ fulfillmentText: respuesta });
   } else {
@@ -75,3 +75,4 @@ app.post('/webhook', async (req, res) => {
 // 🔥 Puerto dinámico para Render
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`🚀 Webhook activo en puerto ${PORT}`));
+
