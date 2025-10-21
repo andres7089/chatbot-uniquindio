@@ -1,38 +1,24 @@
-const express = require("express");
-const axios = require("axios");
+# scraper.py
+from flask import Flask, jsonify
+import requests
+from bs4 import BeautifulSoup
 
-const app = express();
-app.use(express.json());
+app = Flask(__name__)
 
-const PYTHON_API = process.env.PYTHON_API || "http://localhost:5000/fechas";
+@app.route('/fechas', methods=['GET'])
+def obtener_fechas():
+    url = "https://www.uniquindio.edu.co/portal/fechas-academicas/"
+    try:
+        response = requests.get(url, timeout=15)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, "html.parser")
 
-app.post("/webhook", async (req, res) => {
-  const intent = req.body.queryResult?.intent?.displayName || "Desconocido";
-  console.log(`🧠 Intent detectado: ${intent}`);
+        fechas = [li.text.strip() for li in soup.find_all("li") if li.text.strip()]
+        mensaje = "\n".join(fechas[:10]) if fechas else "No se encontraron fechas académicas."
 
-  try {
-    if (intent === "Fechas importantes") {
-      console.log("🌐 Solicitando datos al microservicio Python...");
-      const { data } = await axios.get(PYTHON_API, { timeout: 20000 });
+        return jsonify({"mensaje": mensaje})
+    except Exception as e:
+        return jsonify({"mensaje": f"Error al obtener las fechas: {str(e)}"}), 500
 
-      console.log("✅ Respuesta obtenida del scraper");
-      console.log(data.mensaje.substring(0, 200) + "...");
-
-      res.json({
-        fulfillmentText: data.mensaje,
-        fulfillmentMessages: [{ text: { text: [data.mensaje] } }],
-      });
-    } else {
-      res.json({ fulfillmentText: "No encontré información para esa intención." });
-    }
-  } catch (error) {
-    console.error("❌ Error al comunicar con el scraper:", error.message);
-    res.json({
-      fulfillmentText:
-        "⚠️ No se pudo obtener la información académica. Intenta más tarde.",
-    });
-  }
-});
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🚀 Webhook activo en puerto ${PORT}`));
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000)
