@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 {
   "name": "uniquindio-bot",
   "version": "1.1.0",
@@ -13,3 +14,14 @@
     "node-cache": "^5.1.2"
   }
 }
+=======
+{
+  "name": "chatbot-uniquindio",
+  "version": "1.0.0",
+  "main": "server.js",
+  "dependencies": {
+    "axios": "^1.7.0",
+    "express": "^4.19.2"
+  }
+}
+>>>>>>> 762a4c8 (Proyecto chatbot Uniquindío Node + Python)

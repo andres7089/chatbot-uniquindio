@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: chatbot-uniquindio-node
+    env: node
+    plan: free
+    region: oregon
+    buildCommand: "npm install"
+    startCommand: "node server.js"
+    envVars:
+      - key: PYTHON_API
+        value: https://chatbot-uniquindio-python.onrender.com/fechas
+
+  - type: web
+    name: chatbot-uniquindio-python
+    env: python
+    plan: free
+    region: oregon
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python scraper.py"
