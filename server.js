@@ -1,6 +1,6 @@
 // ==========================================
 // Webhook Dialogflow - Universidad del Quindío
-// Limpio para Telegram / Dialogflow
+// Fechas Académicas filtradas (solo año actual)
 // ==========================================
 
 const express = require("express");
@@ -11,88 +11,130 @@ const NodeCache = require("node-cache");
 const app = express();
 app.use(express.json());
 
-// 🕒 Caché de 12 horas
+// 🕒 Cache de 12 horas
 const cache = new NodeCache({ stdTTL: 60 * 60 * 12 });
 
-// 🔍 Función: obtener las fechas académicas
+// 🔍 Función para obtener fechas desde la web
 async function obtenerFechasUniquindio() {
   const cacheKey = "fechas_uniquindio";
   const cached = cache.get(cacheKey);
-  if (cached) return cached;
+  const anioActual = new Date().getFullYear();
+
+  if (cached) {
+    console.log("📦 Datos obtenidos desde caché");
+    return cached;
+  }
+
+  console.log(`🌐 Obteniendo fechas académicas ${anioActual} desde la web...`);
 
   try {
-    console.log("🌐 Obteniendo datos desde la web...");
     const url = "https://www.uniquindio.edu.co/actividades-por-subcategoria/4/consulta/";
-    const { data } = await axios.get(url, { timeout: 15000 });
-    const $ = cheerio.load(data);
-
-    const actividades = [];
-
-    // Seleccionar las filas de actividades (basadas en tu imagen)
-    $(".actividad, .col-md-12, .row").each((i, el) => {
-      const titulo = $(el).find("p, strong, b").first().text().trim();
-      const fecha = $(el)
-        .find("span")
-        .map((i, span) => $(span).text().trim())
-        .get()
-        .filter((t) => /\d{4}/.test(t)) // solo fechas con años
-        .join(" | ");
-
-      if (titulo && fecha) {
-        actividades.push(`- ${titulo}: ${fecha}`);
-      }
+    const { data } = await axios.get(url, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      },
+      timeout: 15000,
     });
 
-    // Eliminar duplicados y texto basura
-    const filtradas = actividades.filter(
-      (linea) =>
-        !/Tamaño de la letra|Campus Virtual|Buscar|Accesibilidad/i.test(linea)
-    );
+    const $ = cheerio.load(data);
 
-    let respuesta;
-    if (filtradas.length === 0) {
-      respuesta = "⚠️ No se encontraron fechas académicas en la página oficial.";
-    } else {
-      respuesta =
-        "Fechas académicas actuales (Modalidad Presencial):\n\n" +
-        filtradas.join("\n");
-      cache.set(cacheKey, respuesta);
+    // Extraer texto visible y limpiar basura
+    let textos = [];
+    $("body *")
+      .contents()
+      .each(function () {
+        if (this.type === "text") {
+          const txt = $(this).text().trim();
+          if (
+            txt &&
+            !/Tamaño|Accesibilidad|Campus Virtual|Buscar|Idioma|PQRSDF|Horario|Teléfono|Línea|Universidad del Quindío|Emisora|Carrera|atención/i.test(
+              txt
+            )
+          ) {
+            textos.push(txt);
+          }
+        }
+      });
+
+    // Procesar texto para obtener actividades y fechas
+    const actividades = [];
+    let i = 0;
+    while (i < textos.length) {
+      const linea = textos[i];
+
+      if (!/\d/.test(linea) && linea.length > 5) {
+        const titulo = linea;
+        const fechas = [];
+        i++;
+        while (i < textos.length && /\d/.test(textos[i])) {
+          fechas.push(textos[i]);
+          i++;
+        }
+        if (fechas.length > 0) {
+          actividades.push({ titulo, fechas });
+        }
+      } else {
+        i++;
+      }
     }
 
-    return respuesta;
-  } catch (error) {
-    console.error("❌ Error al obtener fechas:", error.message);
-    const previo = cache.get(cacheKey);
-    if (previo)
-      return (
-        "⚠️ No se pudo actualizar, mostrando la información anterior:\n\n" +
-        previo
-      );
-    return "No pude acceder a las fechas académicas en este momento.";
+    // Agrupar por periodo
+    const agrupadas = {};
+    for (const act of actividades) {
+      const { titulo, fechas } = act;
+      for (let j = 0; j < fechas.length; j += 2) {
+        const fechaTexto = fechas[j];
+        const periodo = fechas[j + 1] || "N/A";
+        if (!agrupadas[periodo]) agrupadas[periodo] = [];
+        agrupadas[periodo].push({ titulo, fecha: fechaTexto });
+      }
+    }
+
+    // Filtrar solo por año actual
+    const filtradas = Object.entries(agrupadas).filter(
+      ([periodo, acts]) =>
+        periodo.includes(anioActual.toString()) ||
+        acts.some((a) => a.fecha.includes(anioActual.toString()))
+    );
+
+    if (filtradas.length === 0) {
+      return `⚠️ No se encontraron fechas académicas para el año ${anioActual}.`;
+    }
+
+    // Construir respuesta
+    let respuesta = `📅 *Fechas Académicas ${anioActual} (Modalidad Presencial)*\n\n`;
+    for (const [periodo, acts] of filtradas) {
+      respuesta += `📘 *Periodo ${periodo}*\n`;
+      for (const a of acts) {
+        respuesta += `🟢 *${a.titulo}*\n  • ${a.fecha}\n`;
+      }
+      respuesta += "\n";
+    }
+
+    cache.set(cacheKey, respuesta);
+    console.log("✅ Fechas obtenidas correctamente.");
+    return respuesta.trim();
+  } catch (err) {
+    console.error("❌ Error al obtener fechas:", err.message);
+    return "⚠️ No se pudieron obtener las fechas académicas actualmente.";
   }
 }
 
 // 🎯 Webhook principal
 app.post("/webhook", async (req, res) => {
-  const intent = req.body?.queryResult?.intent?.displayName || "Desconocido";
+  const intent = req.body.queryResult?.intent?.displayName;
   console.log("🧠 Intent recibido:", intent);
 
-  if (intent.toLowerCase().includes("fecha")) {
+  if (intent === "Fechas importantes") {
     const respuesta = await obtenerFechasUniquindio();
-    console.log("✅ Enviando respuesta limpia al intent");
+    console.log("✅ Enviando respuesta limpia al intent.");
     res.json({ fulfillmentText: respuesta });
   } else {
-    res.json({
-      fulfillmentText: "No encontré información para ese intento.",
-    });
+    res.json({ fulfillmentText: "No encontré información sobre esa intención." });
   }
 });
 
-// 🏠 Endpoint raíz
-app.get("/", (req, res) =>
-  res.send("Webhook activo - Universidad del Quindío (versión limpia)")
-);
-
-// 🔥 Puerto dinámico para Render
-const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log(`🚀 Servidor activo en puerto ${PORT}`));
+// 🔥 Puerto dinámico (Render)
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`🚀 Webhook activo en puerto ${PORT}`));
