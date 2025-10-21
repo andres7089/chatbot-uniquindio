@@ -1,6 +1,6 @@
 // ==========================================
 // Webhook Dialogflow - Universidad del Quindío
-// Fechas académicas limpias (formato Telegram)
+// Limpio para Telegram / Dialogflow
 // ==========================================
 
 const express = require("express");
@@ -11,10 +11,10 @@ const NodeCache = require("node-cache");
 const app = express();
 app.use(express.json());
 
-// 🕒 Cache de 12 horas
+// 🕒 Caché de 12 horas
 const cache = new NodeCache({ stdTTL: 60 * 60 * 12 });
 
-// 🔎 Extraer fechas académicas desde el sitio
+// 🔍 Función: obtener las fechas académicas
 async function obtenerFechasUniquindio() {
   const cacheKey = "fechas_uniquindio";
   const cached = cache.get(cacheKey);
@@ -28,28 +28,34 @@ async function obtenerFechasUniquindio() {
 
     const actividades = [];
 
-    // Buscar las actividades
-    $(".col-md-6").each((i, el) => {
-      const titulo = $(el).find("p strong").text().trim();
-      const fechas = $(el)
+    // Seleccionar las filas de actividades (basadas en tu imagen)
+    $(".actividad, .col-md-12, .row").each((i, el) => {
+      const titulo = $(el).find("p, strong, b").first().text().trim();
+      const fecha = $(el)
         .find("span")
         .map((i, span) => $(span).text().trim())
         .get()
-        .filter((t) => t.length > 5)
+        .filter((t) => /\d{4}/.test(t)) // solo fechas con años
         .join(" | ");
 
-      if (titulo && fechas) {
-        actividades.push(`- ${titulo}: ${fechas}`);
+      if (titulo && fecha) {
+        actividades.push(`- ${titulo}: ${fecha}`);
       }
     });
 
+    // Eliminar duplicados y texto basura
+    const filtradas = actividades.filter(
+      (linea) =>
+        !/Tamaño de la letra|Campus Virtual|Buscar|Accesibilidad/i.test(linea)
+    );
+
     let respuesta;
-    if (actividades.length === 0) {
+    if (filtradas.length === 0) {
       respuesta = "⚠️ No se encontraron fechas académicas en la página oficial.";
     } else {
       respuesta =
         "Fechas académicas actuales (Modalidad Presencial):\n\n" +
-        actividades.join("\n");
+        filtradas.join("\n");
       cache.set(cacheKey, respuesta);
     }
 
@@ -57,7 +63,11 @@ async function obtenerFechasUniquindio() {
   } catch (error) {
     console.error("❌ Error al obtener fechas:", error.message);
     const previo = cache.get(cacheKey);
-    if (previo) return "⚠️ No se pudo actualizar, mostrando la información anterior:\n\n" + previo;
+    if (previo)
+      return (
+        "⚠️ No se pudo actualizar, mostrando la información anterior:\n\n" +
+        previo
+      );
     return "No pude acceder a las fechas académicas en este momento.";
   }
 }
@@ -72,12 +82,16 @@ app.post("/webhook", async (req, res) => {
     console.log("✅ Enviando respuesta limpia al intent");
     res.json({ fulfillmentText: respuesta });
   } else {
-    res.json({ fulfillmentText: "No encontré información para ese intento." });
+    res.json({
+      fulfillmentText: "No encontré información para ese intento.",
+    });
   }
 });
 
 // 🏠 Endpoint raíz
-app.get("/", (req, res) => res.send("Webhook activo - Universidad del Quindío (Telegram Ready)"));
+app.get("/", (req, res) =>
+  res.send("Webhook activo - Universidad del Quindío (versión limpia)")
+);
 
 // 🔥 Puerto dinámico para Render
 const PORT = process.env.PORT || 10000;
