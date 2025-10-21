@@ -1,6 +1,6 @@
 // ==========================================
-// Webhook Dialogflow - Universidad del Quindío
-// Fechas Académicas filtradas (solo año actual)
+// 🤖 Webhook Dialogflow - Universidad del Quindío
+// Con caché y logs detallados para Telegram
 // ==========================================
 
 const express = require("express");
@@ -11,130 +11,131 @@ const NodeCache = require("node-cache");
 const app = express();
 app.use(express.json());
 
-// 🕒 Cache de 12 horas
+// 🕒 Caché de 12 horas
 const cache = new NodeCache({ stdTTL: 60 * 60 * 12 });
 
-// 🔍 Función para obtener fechas desde la web
+// =======================================================
+// 🧠 FUNCIÓN: Obtener fechas académicas de Uniquindío
+// =======================================================
 async function obtenerFechasUniquindio() {
   const cacheKey = "fechas_uniquindio";
   const cached = cache.get(cacheKey);
-  const anioActual = new Date().getFullYear();
 
   if (cached) {
-    console.log("📦 Datos obtenidos desde caché");
+    console.log("📦 [CACHE] Datos obtenidos desde caché");
     return cached;
   }
 
-  console.log(`🌐 Obteniendo fechas académicas ${anioActual} desde la web...`);
-
+  console.log("🌐 [WEB] Solicitando datos desde el portal Uniquindío...");
   try {
-    const url = "https://www.uniquindio.edu.co/actividades-por-subcategoria/4/consulta/";
-    const { data } = await axios.get(url, {
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-      },
-      timeout: 15000,
+    const url =
+      "https://www.uniquindio.edu.co/actividades-por-subcategoria/4/consulta/";
+    const { data } = await axios.get(url, { timeout: 10000 });
+    const $ = cheerio.load(data);
+    const actividades = [];
+
+    $(".actividad").each((i, el) => {
+      const titulo = $(el).find(".titulo").text().trim();
+      const fecha = $(el).find(".fecha").text().trim();
+      if (titulo && fecha) {
+        actividades.push({ titulo, fecha });
+      }
     });
 
-    const $ = cheerio.load(data);
-
-    // Extraer texto visible y limpiar basura
-    let textos = [];
-    $("body *")
-      .contents()
-      .each(function () {
-        if (this.type === "text") {
-          const txt = $(this).text().trim();
-          if (
-            txt &&
-            !/Tamaño|Accesibilidad|Campus Virtual|Buscar|Idioma|PQRSDF|Horario|Teléfono|Línea|Universidad del Quindío|Emisora|Carrera|atención/i.test(
-              txt
-            )
-          ) {
-            textos.push(txt);
-          }
-        }
-      });
-
-    // Procesar texto para obtener actividades y fechas
-    const actividades = [];
-    let i = 0;
-    while (i < textos.length) {
-      const linea = textos[i];
-
-      if (!/\d/.test(linea) && linea.length > 5) {
-        const titulo = linea;
-        const fechas = [];
-        i++;
-        while (i < textos.length && /\d/.test(textos[i])) {
-          fechas.push(textos[i]);
-          i++;
-        }
-        if (fechas.length > 0) {
-          actividades.push({ titulo, fechas });
-        }
-      } else {
-        i++;
-      }
+    if (actividades.length === 0) {
+      console.log("⚠️ [SCRAPER] No se encontraron actividades válidas");
+      return "⚠️ No se encontraron fechas académicas en el sitio oficial.";
     }
 
-    // Agrupar por periodo
-    const agrupadas = {};
-    for (const act of actividades) {
-      const { titulo, fechas } = act;
-      for (let j = 0; j < fechas.length; j += 2) {
-        const fechaTexto = fechas[j];
-        const periodo = fechas[j + 1] || "N/A";
-        if (!agrupadas[periodo]) agrupadas[periodo] = [];
-        agrupadas[periodo].push({ titulo, fecha: fechaTexto });
-      }
-    }
-
-    // Filtrar solo por año actual
-    const filtradas = Object.entries(agrupadas).filter(
-      ([periodo, acts]) =>
-        periodo.includes(anioActual.toString()) ||
-        acts.some((a) => a.fecha.includes(anioActual.toString()))
+    // Filtrar solo fechas del año actual
+    const añoActual = new Date().getFullYear();
+    const actividades2025 = actividades.filter(
+      (a) => a.fecha.includes(añoActual) || a.titulo.includes(añoActual)
     );
 
-    if (filtradas.length === 0) {
-      return `⚠️ No se encontraron fechas académicas para el año ${anioActual}.`;
-    }
-
-    // Construir respuesta
-    let respuesta = `📅 *Fechas Académicas ${anioActual} (Modalidad Presencial)*\n\n`;
-    for (const [periodo, acts] of filtradas) {
-      respuesta += `📘 *Periodo ${periodo}*\n`;
-      for (const a of acts) {
+    let respuesta = `📅 *Fechas Académicas ${añoActual} (Modalidad Presencial)*\n\n`;
+    if (actividades2025.length === 0) {
+      respuesta += "⚠️ No hay eventos registrados para este año.";
+    } else {
+      actividades2025.forEach((a) => {
         respuesta += `🟢 *${a.titulo}*\n  • ${a.fecha}\n`;
-      }
-      respuesta += "\n";
+      });
     }
 
+    // Guardar en caché
     cache.set(cacheKey, respuesta);
-    console.log("✅ Fechas obtenidas correctamente.");
-    return respuesta.trim();
-  } catch (err) {
-    console.error("❌ Error al obtener fechas:", err.message);
-    return "⚠️ No se pudieron obtener las fechas académicas actualmente.";
+    console.log("✅ [SCRAPER] Fechas obtenidas correctamente.");
+    return respuesta;
+  } catch (error) {
+    console.error("❌ [ERROR SCRAPER]:", error.message);
+    const previo = cache.get(cacheKey);
+    if (previo) {
+      console.log("⚠️ [FALLBACK] Enviando datos previos desde caché");
+      return (
+        "⚠️ No se pudo actualizar la información, mostrando los últimos datos almacenados:\n\n" +
+        previo
+      );
+    }
+    return (
+      "⚠️ Error al obtener las fechas académicas. Intenta nuevamente más tarde."
+    );
   }
 }
 
-// 🎯 Webhook principal
+// =======================================================
+// 🧩 ENDPOINT PRINCIPAL DEL WEBHOOK
+// =======================================================
 app.post("/webhook", async (req, res) => {
-  const intent = req.body.queryResult?.intent?.displayName;
-  console.log("🧠 Intent recibido:", intent);
+  const body = req.body;
+  const intent = body.queryResult?.intent?.displayName || "Desconocido";
+  const source = body.originalDetectIntentRequest?.source || "Desconocido";
+  const userText = body.queryResult?.queryText || "No detectado";
 
-  if (intent === "Fechas importantes") {
-    const respuesta = await obtenerFechasUniquindio();
-    console.log("✅ Enviando respuesta limpia al intent.");
-    res.json({ fulfillmentText: respuesta });
-  } else {
-    res.json({ fulfillmentText: "No encontré información sobre esa intención." });
+  console.log("==============================================");
+  console.log(`💬 [ENTRADA] Mensaje del usuario: "${userText}"`);
+  console.log(`🧠 [INTENT DETECTADO]: ${intent}`);
+  console.log(`📱 [ORIGEN]: ${source}`);
+  console.log("==============================================");
+
+  try {
+    if (intent === "Fechas importantes") {
+      console.log("🕓 [WEBHOOK] Procesando intent de fechas importantes...");
+
+      const respuesta = await obtenerFechasUniquindio();
+
+      console.log("🧾 [RESPUESTA GENERADA]:");
+      console.log(respuesta.substring(0, 200) + "...");
+
+      // Enviar respuesta limpia compatible con Telegram
+      res.json({
+        fulfillmentText: respuesta,
+        fulfillmentMessages: [
+          {
+            text: {
+              text: [respuesta],
+            },
+          },
+        ],
+      });
+    } else {
+      console.log("❌ [INTENT NO MANEJADO]");
+      res.json({
+        fulfillmentText: "No encontré información sobre esa intención.",
+      });
+    }
+  } catch (err) {
+    console.error("💥 [ERROR GENERAL EN WEBHOOK]:", err.message);
+    res.json({
+      fulfillmentText:
+        "⚠️ Ocurrió un error interno en el servidor. Intenta nuevamente más tarde.",
+    });
   }
 });
 
-// 🔥 Puerto dinámico (Render)
+// =======================================================
+// 🔥 SERVIDOR ACTIVO
+// =======================================================
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🚀 Webhook activo en puerto ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`🚀 Webhook activo y escuchando en puerto ${PORT}`);
+});
